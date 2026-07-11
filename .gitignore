@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Env / tooling
+.venv/
+.env
+.ruff_cache/
+.pytest_cache/
+
+# Outputs
+patches/
+*.tif
+*.tiff
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

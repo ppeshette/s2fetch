@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(conda run -n s2fetch python -m pytest -v 2>&1)"
+    ]
+  }
+}

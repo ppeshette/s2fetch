@@ -1,0 +1,8 @@
+name: s2fetch
+dependencies:
+  - python=3.11
+  - gdal
+  - rasterio
+  - geopandas
+  - pip:
+      - -e .
