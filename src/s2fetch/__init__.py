@@ -5,13 +5,15 @@ STAC backend. Domain-agnostic: returns generic surface reflectance, no spectral
 indices, no ML deps.
 """
 
+from importlib.metadata import version as _version
+
 from .bands import BANDS, DEFAULT_BANDS, Band
 from .cloudmask import DEFAULT_MASK_CLASSES, apply_scl_mask
 from .fetch import fetch
 from .patches import to_patches
 from .providers import PROVIDERS, Provider, get_provider, resolve_collection
 
-__version__ = "0.1.0"
+__version__ = _version("s2fetch")
 
 __all__ = [
     "fetch",
