@@ -39,10 +39,12 @@ _PICK_DAY_METHODS = (None, "first", "last")
 
 
 def _resolve_bands(bands: Sequence[str] | str, provider: str, level: str) -> list[str]:
-    """Normalize `bands` into a list of canonical ids, catching two silent-failure traps
+    """Normalize `bands` into a list of canonical ids, catching silent-failure traps
     before they reach BANDS lookups: a bare string (str is itself a Sequence[str], so
-    bands="B02" would iterate as ['B','0','2']) and an unrecognized provider (which
-    would make bands="all" silently expand to [] instead of naming the bad provider)."""
+    bands="B02" would iterate as ['B','0','2']), an unrecognized provider (which would
+    make bands="all" silently expand to [] instead of naming the bad provider), and
+    empty input (which raises with a hint listing what's actually available for this
+    (provider, level) rather than just pointing at the whole BANDS registry)."""
     if isinstance(bands, str) and bands not in ("all", ""):
         raise TypeError(
             f"bands={bands!r} is a bare string, which iterates character-by-character; "
@@ -51,7 +53,14 @@ def _resolve_bands(bands: Sequence[str] | str, provider: str, level: str) -> lis
     if bands == "all":
         get_provider(provider)
         bands = available_bands(provider, level)
-    return list(bands)
+    bands = list(bands)
+    if not bands:
+        get_provider(provider)
+        raise ValueError(
+            "bands must not be empty; pass at least one canonical band id. Available "
+            f"for provider={provider!r} level={level!r}: {available_bands(provider, level)}"
+        )
+    return bands
 
 
 def fetch(
@@ -136,10 +145,6 @@ def fetch(
     if pick_day not in _PICK_DAY_METHODS:
         raise ValueError(
             f"unknown pick_day {pick_day!r}; supported: {_PICK_DAY_METHODS}"
-        )
-    if not bands:
-        raise ValueError(
-            "bands must not be empty; pass at least one canonical band id (see BANDS)."
         )
 
     band_ids = list(bands)
@@ -256,10 +261,6 @@ def fetch_native(
     """
     level = level.upper()
     bands = _resolve_bands(bands, provider, level)
-    if not bands:
-        raise ValueError(
-            "bands must not be empty; pass at least one canonical band id (see BANDS)."
-        )
 
     groups: dict[int, list[str]] = {}
     for bid in bands:
