@@ -152,19 +152,23 @@ def fetch(
         band_ids.append(SCL)
 
     mismatches = []
+    fitting = []
     for bid in band_ids:
         band = BANDS.get(bid)
         if band is None:
             raise KeyError(f"unknown band id {bid!r}; known ids: {sorted(BANDS)}")
         if band.native_resolution_m != resolution:
             mismatches.append((bid, band.native_resolution_m))
+        else:
+            fitting.append(bid)
     if mismatches:
         detail = ", ".join(f"{bid} (native {native}m)" for bid, native in mismatches)
         if not allow_resample:
             raise ValueError(
-                f"resolution={resolution}m would resample: {detail}. Pass "
-                "allow_resample=True to proceed, choose a resolution matching your "
-                "bands' native GSD, or call fetch_native(...) to get each native-"
+                f"resolution={resolution}m would resample: {detail}. Rerun with "
+                f"bands={fitting} to fetch only bands already native to "
+                f"resolution={resolution}m, pass allow_resample=True to resample "
+                "everything above, or call fetch_native(...) to get each native-"
                 "resolution group as its own Dataset with no resampling."
             )
         warnings.warn(
