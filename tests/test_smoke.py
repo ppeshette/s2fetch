@@ -176,6 +176,24 @@ def test_fetch_rejects_empty_bands_string():
         fetch(aoi=AOI, start="2023-07-01", end="2023-09-30", bands="")
 
 
+def test_fetch_rejects_bare_string_band():
+    # bands="B02" is a common mistake -- str is itself a Sequence[str], so without this
+    # guard it would silently iterate to ['B', '0', '2'] instead of raising clearly.
+    with pytest.raises(TypeError, match="bare string"):
+        fetch(aoi=AOI, start="2023-07-01", end="2023-09-30", bands="B02")
+
+
+def test_fetch_bands_all_rejects_unknown_provider_before_expanding():
+    # bands="all" must validate `provider` before calling available_bands(), which
+    # would otherwise silently return [] for an unrecognized provider and surface as
+    # the generic "bands must not be empty" error instead of naming the bad provider.
+    with pytest.raises(KeyError, match="unknown provider"):
+        fetch(
+            aoi=AOI, start="2023-07-01", end="2023-09-30",
+            bands="all", provider="not-a-real-provider",
+        )
+
+
 def test_fetch_bands_all_expands_and_hits_resolution_mismatch():
     # "all" spans 10/20/60m natives; default resolution=20 must still reject the
     # mismatch (proves "all" expanded to real band ids, not list("all") -> ['a','l','l']),

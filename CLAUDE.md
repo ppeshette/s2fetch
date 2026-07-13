@@ -112,7 +112,9 @@ It is deliberately independent of any consumer project. **No PyTorch, no ML stac
 burn/water/mineral domain logic.** Consumers import s2fetch; s2fetch never imports them.
 The standalone env with no ML deps is the honest test that this coupling never creeps in.
 
-**This repo has not been built yet. The full build plan is in [BUILD.md](BUILD.md). Read it first.**
+Built and functional. [BUILD.md](BUILD.md) has the original build spec, verified
+provider facts, band registry table, and environment setup notes -- still useful as
+reference for extending it.
 
 ---
 

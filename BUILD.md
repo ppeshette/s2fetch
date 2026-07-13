@@ -353,6 +353,15 @@ across providers (it exercises the `blue/green/red` -> `B02/B03/B04` translation
    credentials for Earth Search's L1C requester-pays path are planned (out of scope by
    choice, not a blocker) — `test_earth_search_fetch_l1c` will continue to skip its
    final read assertion indefinitely.
+10. ✅ `bands="B02"` (a bare string instead of a tuple/list) now raises a `TypeError`
+    naming the mistake, instead of silently iterating character-by-character
+    (`list("B02") == ['B','0','2']`) into a confusing `unknown band id 'B'` KeyError.
+    `bands=""` still falls through to the existing empty-bands `ValueError`, matching
+    `bands=()`. Shared by `fetch()`/`fetch_native()` via `_resolve_bands()`.
+11. ✅ `bands="all"` with an invalid/misspelled `provider` now raises a `KeyError`
+    naming the bad provider (via `get_provider()`) before expanding `bands="all"`,
+    instead of `available_bands()` silently resolving to `[]` and surfacing as the
+    generic `"bands must not be empty"` error.
 
 ### Environment build notes
 

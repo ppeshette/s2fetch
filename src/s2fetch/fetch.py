@@ -38,11 +38,27 @@ _MASK_METHODS = (None, "scl")
 _PICK_DAY_METHODS = (None, "first", "last")
 
 
+def _resolve_bands(bands: Sequence[str] | str, provider: str, level: str) -> list[str]:
+    """Normalize `bands` into a list of canonical ids, catching two silent-failure traps
+    before they reach BANDS lookups: a bare string (str is itself a Sequence[str], so
+    bands="B02" would iterate as ['B','0','2']) and an unrecognized provider (which
+    would make bands="all" silently expand to [] instead of naming the bad provider)."""
+    if isinstance(bands, str) and bands not in ("all", ""):
+        raise TypeError(
+            f"bands={bands!r} is a bare string, which iterates character-by-character; "
+            f"pass a list/tuple, e.g. bands=[{bands!r}]."
+        )
+    if bands == "all":
+        get_provider(provider)
+        bands = available_bands(provider, level)
+    return list(bands)
+
+
 def fetch(
     aoi: AOI,
     start: str,
     end: str,
-    bands: Sequence[str] = DEFAULT_BANDS,
+    bands: Sequence[str] | str = DEFAULT_BANDS,
     cloud_max: float = 20,
     provider: str = "planetary_computer",
     level: str = "L2A",
@@ -107,8 +123,7 @@ def fetch(
     Does not compute; the caller computes.
     """
     level = level.upper()
-    if bands == "all":
-        bands = available_bands(provider, level)
+    bands = _resolve_bands(bands, provider, level)
     if mask_method not in _MASK_METHODS:
         raise ValueError(
             f"unknown mask_method {mask_method!r}; supported: {_MASK_METHODS}"
@@ -240,8 +255,7 @@ def fetch_native(
     containing only the groups actually present among the requested bands.
     """
     level = level.upper()
-    if bands == "all":
-        bands = available_bands(provider, level)
+    bands = _resolve_bands(bands, provider, level)
     if not bands:
         raise ValueError(
             "bands must not be empty; pass at least one canonical band id (see BANDS)."
