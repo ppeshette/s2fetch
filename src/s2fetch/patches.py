@@ -1,7 +1,8 @@
-"""Tile a (computed) Dataset into size x size GeoTIFF patches for ML dataloaders.
+"""Write a (computed) Dataset to GeoTIFF, tiled into size x size patches for ML
+dataloaders (``to_patches``) or as one full-extent file per time step (``to_geotiff``).
 
-Multi-band per patch: each GeoTIFF holds all band variables as bands, preserving CRS
-and geotransform via rioxarray. Domain-agnostic -- just windowed raster tiles.
+Multi-band per file: each GeoTIFF holds all band variables as bands, preserving CRS
+and geotransform via rioxarray. Domain-agnostic -- just raster I/O.
 """
 
 from __future__ import annotations
@@ -11,6 +12,12 @@ from typing import Optional, Sequence
 
 import rioxarray  # noqa: F401  (registers the .rio accessor on xarray objects)
 import xarray as xr
+
+
+def _write_raster(frame: xr.Dataset, var_names: list[str], path: Path, crs) -> None:
+    da = frame[var_names].to_array(dim="band")
+    da = da.rio.write_crs(crs)
+    da.rio.to_raster(path)
 
 
 def to_patches(
@@ -74,10 +81,60 @@ def to_patches(
                 tile = frame.isel(
                     {ydim: slice(iy, iy + size), xdim: slice(ix, ix + size)}
                 )
-                da = tile[var_names].to_array(dim="band")
-                da = da.rio.write_crs(frame.rio.crs or ds.rio.crs)
                 path = out / f"{prefix}{stamp}_y{iy}_x{ix}.tif"
-                da.rio.to_raster(path)
+                _write_raster(tile, var_names, path, frame.rio.crs or ds.rio.crs)
                 written.append(path)
+
+    return written
+
+
+def to_geotiff(
+    ds: xr.Dataset,
+    out_dir: str | Path = ".",
+    prefix: str = "scene",
+    bands: Optional[Sequence[str]] = None,
+    time_index: Optional[int] = None,
+) -> list[Path]:
+    """Write ``ds`` to one full-extent GeoTIFF per time step, no tiling.
+
+    Parameters
+    ----------
+    ds : Dataset with 2D spatial dims (y, x) and optionally a time dim. If a time dim
+        is present, pass ``time_index`` to select one step (one file written), else
+        each step is written separately with the timestamp in the filename.
+    out_dir : directory to write into (created if absent).
+    prefix : filename prefix.
+    bands : band variables to stack into the GeoTIFF; default all data_vars.
+    time_index : if set, select this time step before writing.
+
+    Returns the list of written GeoTIFF paths. Every band in ``ds`` (or ``bands``)
+    must already share one pixel grid -- a GeoTIFF's bands all share one
+    width/height/geotransform, so a Dataset assembled from mixed native GSDs (e.g. via
+    ``allow_resample=False`` calls at different resolutions) can't be written as a
+    single file; write each resolution group separately instead. Expects an
+    already-computed Dataset; call ``.compute()`` first for large lazy inputs to avoid
+    re-reading COGs per file.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    if "time" in ds.dims and time_index is not None:
+        ds = ds.isel(time=time_index)
+
+    var_names = list(bands) if bands is not None else list(ds.data_vars)
+
+    written: list[Path] = []
+    time_steps = ds.sizes.get("time", None)
+    iterate = range(time_steps) if time_steps else [None]
+
+    for t in iterate:
+        frame = ds.isel(time=t) if t is not None else ds
+        stamp = ""
+        if t is not None:
+            stamp = "_" + str(frame["time"].values)[:10]  # YYYY-MM-DD
+
+        path = out / f"{prefix}{stamp}.tif"
+        _write_raster(frame, var_names, path, frame.rio.crs or ds.rio.crs)
+        written.append(path)
 
     return written

@@ -42,12 +42,20 @@ The test: Every changed line should trace directly to the user's request.
 
 ## 4. Goal-Driven Execution
 
-**Define success criteria. Loop until verified.**
+**Define success criteria. Verify before calling something done — but verifying and
+committing a permanent test are different things.**
 
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
+- "Fix the bug" → write a regression test that reproduces it, keep it in the suite.
+  This is the case that pays for itself: without it, the bug can silently come back.
+- "Add a feature/validation" → verify it actually works before calling it done. Only
+  add a permanent test for it if the check is cheap and offline (unit-level), or if
+  asked for one.
+- Verification that needs network calls, live services, or other ongoing cost →
+  fine to run once to confirm the change works, but ask before adding it as a
+  permanent test in the suite. Default to not persisting it.
+- Don't add a test because "the file already has one like this for every other
+  case" — match existing density only when the new test independently earns its
+  keep, not to fill a pattern.
 
 For multi-step tasks, state a brief plan:
 ```
@@ -110,16 +118,14 @@ The standalone env with no ML deps is the honest test that this coupling never c
 
 ## Why this exists
 
-Spun out of the `burn_scar_fm_bench` benchmark (sibling repo), which needs native Sentinel-2
-L2A acquisition for its cross-dataset generalization work (MTBS-S2 extraction, Canada band
-backfill) but had no S2 fetch capability. The same "get me a cloud-masked S2 scene for this
-AOI and date" need is identical for maritime/water-quality and mineral work (e.g. the Planet
-Tanager competition, where an S2 broadband baseline anchors a hyperspectral comparison). So it
-is a shared utility, not a benchmark component.
+Different domains that consume Sentinel-2 (burn scar segmentation, aquatic optics,
+mineral mapping) all need the same "cloud-masked S2 scene for this AOI and date"
+capability. Rather than duplicate that acquisition logic per-project, it's a shared,
+domain-agnostic utility that each consumer imports.
 
-Consumers, present and planned:
-- `burn_scar_fm_bench` — S2 L2A patches for burn scar segmentation datasets
-- Tanager / maritime aquatic optics — S2 broadband baseline scenes
+Consumer categories, present and planned:
+- Burn scar segmentation — S2 L2A patches
+- Aquatic optics — S2 broadband baseline scenes
 - Mineral mapping — S2 context scenes
 
 Domain logic for each (dNBR, water constituent indices, mineral absorption) lives in the

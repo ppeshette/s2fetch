@@ -22,8 +22,8 @@ _HAS_CDSE_CREDS = bool(
     os.environ.get("CDSE_S3_ACCESS_KEY_ID") and os.environ.get("CDSE_S3_SECRET_ACCESS_KEY")
 )
 
-from s2fetch import BANDS, DEFAULT_BANDS, fetch, to_patches
-from s2fetch.bands import asset_to_canonical, resolve_assets
+from s2fetch import BANDS, DEFAULT_BANDS, fetch, fetch_native, to_patches
+from s2fetch.bands import asset_to_canonical, available_bands, resolve_assets
 from s2fetch.providers import cdse_sign_inplace, get_provider, resolve_collection
 
 # Santa Barbara coast, small AOI, summer 2023 low-cloud window.
@@ -46,8 +46,30 @@ def test_asset_to_canonical_roundtrip():
     assert rev["blue"] == "B02" and rev["swir22"] == "B12" and rev["scl"] == "SCL"
 
 
+def test_resolve_assets_rejects_scl_at_l1c_for_earth_search():
+    # SCL is L2A-only; previously only CDSE's mapping enforced this, so requesting
+    # bands=("SCL",) at level="L1C" on earth_search silently resolved a nonexistent
+    # asset instead of raising.
+    with pytest.raises(KeyError):
+        resolve_assets(("SCL",), "earth_search", level="L1C")
+
+
 def test_default_bands_all_known():
     assert all(b in BANDS for b in DEFAULT_BANDS)
+
+
+def test_available_bands_pc_excludes_b10():
+    # PC has no L1C-only cirrus band; SCL exists at L2A.
+    ab = available_bands("planetary_computer", "L2A")
+    assert "B10" not in ab
+    assert "SCL" in ab and "B02" in ab
+
+
+def test_available_bands_earth_search_l1c_excludes_scl():
+    # SCL is an L2A-only product; L1C has cirrus (B10) instead.
+    ab = available_bands("earth_search", "L1C")
+    assert "SCL" not in ab
+    assert "B10" in ab
 
 
 def test_cdse_provider_registered():
@@ -137,6 +159,45 @@ def test_fetch_rejects_masking_at_l1c():
 def test_fetch_rejects_unknown_mask_method():
     with pytest.raises(ValueError):
         fetch(aoi=AOI, start="2023-07-01", end="2023-09-30", mask_method="fmask")
+
+
+def test_fetch_rejects_unknown_pick_day():
+    with pytest.raises(ValueError):
+        fetch(aoi=AOI, start="2023-07-01", end="2023-09-30", pick_day="middle")
+
+
+def test_fetch_rejects_empty_bands_tuple():
+    with pytest.raises(ValueError):
+        fetch(aoi=AOI, start="2023-07-01", end="2023-09-30", bands=())
+
+
+def test_fetch_rejects_empty_bands_string():
+    with pytest.raises(ValueError):
+        fetch(aoi=AOI, start="2023-07-01", end="2023-09-30", bands="")
+
+
+def test_fetch_bands_all_expands_and_hits_resolution_mismatch():
+    # "all" spans 10/20/60m natives; default resolution=20 must still reject the
+    # mismatch (proves "all" expanded to real band ids, not list("all") -> ['a','l','l']),
+    # and the message should now point to fetch_native().
+    with pytest.raises(ValueError, match="fetch_native"):
+        fetch(aoi=AOI, start="2023-07-01", end="2023-09-30", bands="all")
+
+
+def test_fetch_native_groups_by_resolution_then_delegates():
+    # RGB is native 10m, B11 is native 20m -- two groups. Bogus provider proves each
+    # group's fetch() call is actually reached (no network needed).
+    with pytest.raises(KeyError):
+        fetch_native(
+            aoi=AOI, start="2023-07-01", end="2023-09-30",
+            bands=("B04", "B03", "B02", "B11"),
+            provider="not-a-real-provider",
+        )
+
+
+def test_fetch_native_rejects_empty_bands():
+    with pytest.raises(ValueError):
+        fetch_native(aoi=AOI, start="2023-07-01", end="2023-09-30", bands=())
 
 
 def test_fetch_rejects_resolution_mismatch_without_allow_resample():

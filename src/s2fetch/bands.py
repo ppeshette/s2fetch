@@ -67,8 +67,15 @@ BANDS: dict[str, Band] = {
              level_assets={"cdse": {"L1C": "B11", "L2A": "B11_20m"}}),
         Band("B12", 2190, 20, {"planetary_computer": "B12", "earth_search": "swir22"},
              level_assets={"cdse": {"L1C": "B12", "L2A": "B12_20m"}}),
-        Band("SCL", None, 20, {"planetary_computer": "SCL", "earth_search": "scl"},
-             level_assets={"cdse": {"L2A": "SCL_20m"}}),  # SCL doesn't exist at L1C
+        # SCL is an L2A-only product for every provider, not just CDSE -- all three
+        # mappings go through level_assets (not the level-invariant `assets` dict) so
+        # requesting it at level="L1C" raises instead of resolving a nonexistent asset.
+        Band("SCL", None, 20, {},
+             level_assets={
+                 "planetary_computer": {"L2A": "SCL"},
+                 "earth_search": {"L2A": "scl"},
+                 "cdse": {"L2A": "SCL_20m"},
+             }),
     ]
 }
 
@@ -91,6 +98,23 @@ def _asset_key(band: Band, provider: str, level: str) -> str:
             f"band {band.id!r} has no asset mapping for provider {provider!r} "
             f"at level {level!r}{hint}"
         ) from e
+
+
+def available_bands(provider: str, level: str = "L2A") -> list[str]:
+    """Canonical band ids with a valid asset mapping for this (provider, level).
+
+    Preserves BANDS' registration order. Backs fetch()'s bands="all" -- e.g. PC has no
+    B10 and L1C has no SCL, so this is not just every key in BANDS.
+    """
+    level = level.upper()
+    out = []
+    for band in BANDS.values():
+        try:
+            _asset_key(band, provider, level)
+        except KeyError:
+            continue
+        out.append(band.id)
+    return out
 
 
 def resolve_assets(

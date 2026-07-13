@@ -43,7 +43,7 @@ s2fetch/
     bands.py             # canonical band <-> wavelength <-> per-provider asset-key registry
     fetch.py             # fetch(): AOI + date + bands + cloud_max -> xarray
     cloudmask.py         # SCL-based mask
-    patches.py           # xarray -> NxN GeoTIFF tiles
+    patches.py           # xarray -> NxN GeoTIFF tiles, or one full-extent GeoTIFF
   tests/
     test_smoke.py        # the live PC fetch (below), marked network
 ```
@@ -54,7 +54,7 @@ Public API surface (keep small):
 def fetch(
     aoi,                 # (minx, miny, maxx, maxy) lon/lat bbox, or a shapely geometry
     start, end,          # ISO date strings "YYYY-MM-DD"
-    bands=("B02","B03","B04","B8A","B11","B12"),  # canonical ids (benchmark 6-band default)
+    bands=("B02","B03","B04","B8A","B11","B12"),  # canonical ids, or "all" (provider/level-aware)
     cloud_max=20,        # scene-level eo:cloud_cover upper bound (percent)
     provider="planetary_computer",   # or "earth_search" / "cdse"
     level="L2A",         # or "L1C"; not every provider serves every level
@@ -65,11 +65,27 @@ def fetch(
     groupby="solar_day", # mosaic same-day tiles
     mask_classes=...,    # SCL classes to mask out, only used if mask_method="scl"
     drop_scl=True,       # only used if mask_method="scl"
+    pick_day=None,       # None (all matching scenes) or "first"/"last" (narrow to one date)
 ) -> "xarray.Dataset":   # lazy, dask-backed; caller computes
+    ...
+
+def fetch_native(
+    aoi, start, end,
+    bands="all",         # canonical ids, or "all" (default)
+    cloud_max=20, provider="planetary_computer", level="L2A",
+    crs=None, groupby="solar_day", pick_day=None,
+) -> "dict[int, xarray.Dataset]":  # keyed by native resolution in metres, e.g. {10: ds, 20: ds, 60: ds}
+    # groups bands by native_resolution_m, calls fetch() once per group at that
+    # group's own resolution -- never resamples, no mask_method (SCL is 20m-only;
+    # masking another group with it would itself require resampling)
     ...
 
 def to_patches(ds, size=256, stride=None, out_dir=..., prefix=...) -> list[Path]:
     # tile an (already-computed) Dataset into size x size GeoTIFFs
+    ...
+
+def to_geotiff(ds, out_dir=..., prefix=..., bands=None, time_index=None) -> list[Path]:
+    # write an (already-computed) Dataset as one full-extent GeoTIFF per time step
     ...
 ```
 
@@ -333,11 +349,10 @@ across providers (it exercises the `blue/green/red` -> `B02/B03/B04` translation
    resolution, band mapping, presigning shape, credential-missing error). **Not yet verified
    with real CDSE S3 credentials** — `test_cdse_fetch_l2a`/`test_cdse_fetch_l1c` are written
    and gated on `CDSE_S3_ACCESS_KEY_ID`/`CDSE_S3_SECRET_ACCESS_KEY` env vars, currently skip.
-   User has a free CDSE account and S3 keys generated, hasn't run the credentialed tests yet
-   (2026-07-10) — pick this up by setting those two env vars and running
-   `pytest -v -k cdse`. No AWS credentials for Earth Search's L1C requester-pays path are
-   planned (out of scope by choice, not a blocker) — `test_earth_search_fetch_l1c` will
-   continue to skip its final read assertion indefinitely.
+   Pick this up by setting those two env vars and running `pytest -v -k cdse`. No AWS
+   credentials for Earth Search's L1C requester-pays path are planned (out of scope by
+   choice, not a blocker) — `test_earth_search_fetch_l1c` will continue to skip its
+   final read assertion indefinitely.
 
 ### Environment build notes
 
@@ -350,9 +365,8 @@ transitively) as separate steps rather than one combined solve, then `pip instal
 it's the *one-shot solve* that's fragile on an old-conda machine, not the package list. If
 `conda env create` hangs, fall back to the incremental sequence above.
 
-## Consuming from burn_scar_fm_bench
+## Consuming from a downstream project
 
-The benchmark runs in its `terratorch` conda env (separate). It gets s2fetch by
-`pip install -e ../s2fetch` into that env, or by calling it as a subprocess. Burn-specific label
-logic (dNBR from pre/post pairs, MTBS-boundary rasterization) lives in the benchmark and imports
-s2fetch — not here.
+A consumer typically runs in its own separate env and gets s2fetch by
+`pip install -e ../s2fetch` into that env, or by calling it as a subprocess.
+Domain-specific label/index logic lives in the consumer and imports s2fetch — not here.

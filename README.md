@@ -29,7 +29,7 @@ conda-forge, then `pip install -e .`. `pyproject.toml` is the canonical dependen
 ## Use
 
 ```python
-from s2fetch import fetch, to_patches
+from s2fetch import fetch, to_geotiff, to_patches
 
 ds = fetch(
     aoi=(-119.75, 34.40, -119.65, 34.48),   # (minx, miny, maxx, maxy) lon/lat, or a shapely geom
@@ -44,7 +44,33 @@ ds = fetch(
 
 ds = ds.compute()                             # fetch() is lazy; caller computes
 paths = to_patches(ds, size=256, time_index=0, out_dir="patches")
+
+# or, for a whole scene as one file instead of tiles:
+paths = to_geotiff(ds, time_index=0, out_dir="scenes")
 ```
+
+`to_geotiff` writes one full-extent GeoTIFF per time step (or one, with `time_index`)
+instead of tiling -- useful when a consumer wants a whole scene rather than an ML
+patch grid (e.g. a baseline scene for visual comparison). Every band written together
+must already share one pixel grid, same as `to_patches` -- a Dataset assembled from
+mixed native-resolution `fetch()` calls (see "Resolution" below) can't be written as a
+single file; call `to_geotiff` once per resolution group instead.
+
+### Date range
+
+`fetch()` returns every scene between `start` and `end` matching `cloud_max` -- not
+just the first available -- each as its own step on the returned Dataset's `time` axis.
+`groupby="solar_day"` (default) merges same-day tiles/orbits into one time step; it
+does not collapse the whole window down to a single scene. For one scene, either narrow
+`start`/`end` to a single day, or fetch the window and pick a step yourself (e.g.
+`ds.isel(time=0)` takes whichever scene sorts first chronologically, not necessarily
+the lowest cloud cover -- inspect `ds.time` alongside item-level cloud metadata if that
+distinction matters).
+
+Pass `pick_day="first"` or `pick_day="last"` to search the whole `start`/`end` window
+but only load the earliest or latest matching date -- mosaicked per `groupby` if the
+AOI spans multiple tiles that day, not truncated to a single STAC item. Useful when you
+want "the most recent low-cloud scene in this range" without knowing its date up front.
 
 ### Resolution
 
@@ -63,6 +89,35 @@ needs `allow_resample=True`, since SCL can't join them on a 10m grid without res
 
 `DEFAULT_BANDS` (`B02, B03, B04, B8A, B11, B12`) spans both 10m and 20m natively, so
 fetching it at any single resolution requires `allow_resample=True`.
+
+Pass `bands="all"` to request every band available for the given `(provider, level)`
+-- e.g. Planetary Computer has no B10, L1C has no SCL, so this is provider/level-aware,
+not just every key in `bands.BANDS`. Since "all" always spans multiple native GSDs, it
+needs `allow_resample=True` at a single `resolution` like any other mixed-GSD request.
+
+For every band at its own native resolution with no resampling at all, use
+`fetch_native()` instead of `fetch()`:
+
+```python
+from s2fetch import fetch_native
+
+by_res = fetch_native(aoi=AOI, start="2023-07-01", end="2023-09-30")  # bands="all" by default
+ds_10m = by_res[10]   # B02, B03, B04, B08
+ds_20m = by_res[20]   # B05, B06, B07, B8A, B11, B12, SCL
+ds_60m = by_res[60]   # B01, B09, B10 (B10 only at level="L1C")
+```
+
+`fetch_native()` groups the requested bands by `native_resolution_m` and calls
+`fetch()` once per group at that group's own resolution, so `allow_resample` never
+needs to be set -- each call is single-GSD by construction. A single GeoTIFF or
+xarray.Dataset can't hold bands on different pixel grids, so this can only ever return
+one Dataset per resolution, never one merged Dataset -- same constraint `to_geotiff()`
+has (see above).
+
+`fetch_native()` doesn't offer `mask_method`: SCL is native 20m, so masking a 10m or
+60m group with it would itself require resampling -- exactly what this function exists
+to avoid. `bands="all"` (the default) or an explicit `"SCL"` still gets you SCL back as
+a plain, unmasked band in the 20m group; call `apply_scl_mask()` on it yourself.
 
 ### Cloud masking
 
