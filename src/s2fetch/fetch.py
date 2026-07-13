@@ -11,6 +11,7 @@ import warnings
 from typing import Iterable, Sequence, Union
 
 import odc.stac
+import pyproj
 import pystac_client
 import xarray as xr
 from shapely.geometry import mapping
@@ -36,6 +37,24 @@ def _bbox_of(aoi: AOI) -> BBox:
 
 _MASK_METHODS = (None, "scl")
 _PICK_DAY_METHODS = (None, "first", "last")
+
+
+def _require_metric_crs(crs) -> None:
+    """`resolution` is always meters. That's only a coherent contract if the output
+    CRS is projected in meters too -- a geographic CRS (degrees) would silently
+    reinterpret `resolution` as degrees, and other unit projected CRSs (e.g. US
+    survey feet) would do the same. None (native UTM, meters) always passes."""
+    if crs is None:
+        return
+    parsed = pyproj.CRS.from_user_input(crs)
+    unit = parsed.axis_info[0].unit_name if parsed.axis_info else None
+    if parsed.is_geographic or unit != "metre":
+        raise ValueError(
+            f"crs={crs!r} is not a metre-based projected CRS (unit={unit!r}); "
+            "resolution is always meters, so a non-metric crs would silently change "
+            "what resolution means. Pass crs=None (native UTM) or a projected CRS in "
+            "meters (e.g. crs='EPSG:32611')."
+        )
 
 
 def _resolve_bands(bands: Sequence[str] | str, provider: str, level: str) -> list[str]:
@@ -103,7 +122,8 @@ def fetch(
     level : processing level, "L2A" (default, surface reflectance) or "L1C"
         (top-of-atmosphere reflectance, not atmospherically corrected). Not every
         provider serves every level -- e.g. Planetary Computer is L2A-only.
-    resolution : output resolution in metres.
+    resolution : output resolution in metres. Always metres regardless of `crs` --
+        see `crs` below.
     mask_method : None (default; no masking, nothing pulled in beyond `bands`) or
         "scl" (adds SCL to the request if not already present, applies the SCL mask,
         then drops SCL per `drop_scl`). SCL only exists at L2A; raises if set with
@@ -115,7 +135,10 @@ def fetch(
         with this set, a UserWarning is still emitted naming exactly which bands are
         being resampled and their native GSD -- opting in silences the error, not the
         visibility.
-    crs : output CRS; None lets odc-stac pick native UTM.
+    crs : output CRS; None (default) lets odc-stac pick native UTM. Must be None or a
+        metre-based projected CRS -- `resolution` is always metres, so a geographic
+        CRS (e.g. "EPSG:4326") or a non-metre projected CRS would silently change
+        what `resolution` means; fetch() raises rather than do that.
     groupby : odc-stac grouping; "solar_day" (default) merges same-day tiles/orbits
         into one time step. Distinct dates within `start`/`end` remain separate time
         steps regardless -- this does not collapse the window to a single scene.
@@ -132,6 +155,7 @@ def fetch(
     Does not compute; the caller computes.
     """
     level = level.upper()
+    _require_metric_crs(crs)
     bands = _resolve_bands(bands, provider, level)
     if mask_method not in _MASK_METHODS:
         raise ValueError(

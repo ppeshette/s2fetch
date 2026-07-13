@@ -16,6 +16,7 @@ import xarray as xr
 
 def _write_raster(frame: xr.Dataset, var_names: list[str], path: Path, crs) -> None:
     da = frame[var_names].to_array(dim="band")
+    da.attrs["long_name"] = tuple(var_names)
     da = da.rio.write_crs(crs)
     da.rio.to_raster(path)
 
